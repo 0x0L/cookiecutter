@@ -4,6 +4,7 @@
 
 import errno
 import io
+import json
 import logging
 import os
 import subprocess
@@ -83,7 +84,8 @@ def run_script(script_path, cwd='.'):
         proc = subprocess.Popen(
             script_command,
             shell=run_thru_shell,
-            cwd=cwd
+            cwd=cwd,
+            stdout=subprocess.PIPE
         )
         exit_status = proc.wait()
         if exit_status != EXIT_SUCCESS:
@@ -99,6 +101,18 @@ def run_script(script_path, cwd='.'):
         raise FailedHookException(
             'Hook script failed (error: {})'.format(os_error)
         )
+
+    output = proc.stdout.read()
+    if not output:
+        return {}
+
+    try:
+        ret = json.loads(output)
+    except json.JSONDecodeError:
+        raise FailedHookException(
+                'Hook script output is not a valid JSON string'
+            )
+    return ret
 
 
 def run_script_with_context(script_path, cwd, context):
@@ -125,7 +139,7 @@ def run_script_with_context(script_path, cwd, context):
         output = template.render(**context)
         temp.write(output.encode('utf-8'))
 
-    run_script(temp.name, cwd)
+    return run_script(temp.name, cwd)
 
 
 def run_hook(hook_name, project_dir, context):
@@ -141,4 +155,5 @@ def run_hook(hook_name, project_dir, context):
         logger.debug('No {} hook found'.format(hook_name))
         return
     logger.debug('Running hook {}'.format(hook_name))
-    run_script_with_context(script, project_dir, context)
+    ret = run_script_with_context(script, project_dir, context)
+    context['cookiecutter'].update(ret)
